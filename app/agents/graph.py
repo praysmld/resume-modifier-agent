@@ -4,8 +4,9 @@ import os
 from typing import Dict, Any, List, Optional, TypedDict
 from datetime import datetime
 import json
+import subprocess
+import tempfile
 
-from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
@@ -24,8 +25,6 @@ class ResumeState(TypedDict):
     requirements: Optional[str]
     original_resume: str
     modified_resume: str
-    analysis_results: Dict[str, Any]
-    suggestions: List[str]
     current_step: str
     error: Optional[str]
 
@@ -41,21 +40,16 @@ class ResumeModifierAgent:
         self.sessions = {}  # In-memory session storage (use Redis in production)
     
     def _initialize_llm(self):
-        """Initialize the language model"""
-        if settings.openai_api_key:
-            return ChatOpenAI(
-                model=settings.openai_model,
-                api_key=settings.openai_api_key,
-                temperature=0.3
-            )
-        elif settings.anthropic_api_key:
+        """Initialize the language model - only use Anthropic"""
+        if settings.anthropic_api_key:
             return ChatAnthropic(
                 model=settings.anthropic_model,
                 api_key=settings.anthropic_api_key,
-                temperature=0.3
+                temperature=0.3,
+                max_tokens=10000
             )
         else:
-            raise ValueError("No API key provided for language model")
+            raise ValueError("Anthropic API key is required for LaTeX modification")
     
     def _build_graph(self):
         """Build the LangGraph workflow"""
@@ -63,16 +57,12 @@ class ResumeModifierAgent:
         
         # Add nodes
         workflow.add_node("load_resume", self._load_resume_node)
-        workflow.add_node("analyze_job", self._analyze_job_node)
-        workflow.add_node("identify_gaps", self._identify_gaps_node)
         workflow.add_node("modify_content", self._modify_content_node)
         workflow.add_node("format_output", self._format_output_node)
         
         # Add edges
         workflow.set_entry_point("load_resume")
-        workflow.add_edge("load_resume", "analyze_job")
-        workflow.add_edge("analyze_job", "identify_gaps")
-        workflow.add_edge("identify_gaps", "modify_content")
+        workflow.add_edge("load_resume", "modify_content")
         workflow.add_edge("modify_content", "format_output")
         workflow.add_edge("format_output", END)
         
@@ -102,136 +92,124 @@ class ResumeModifierAgent:
             
         return state
     
-    async def _analyze_job_node(self, state: ResumeState) -> ResumeState:
-        """Analyze the job description to extract key requirements"""
-        try:
-            logger.info(f"Analyzing job description for session {state['session_id']}")
-            
-            analysis_prompt = f"""
-            Analyze this job description and extract key information:
-            
-            Company: {state['company_name']}
-            Position: {state['position_title']}
-            Job Description: {state['job_description']}
-            Additional Requirements: {state.get('requirements', 'None')}
-            
-            Extract and return:
-            1. Key technical skills required
-            2. Soft skills mentioned
-            3. Experience level expected
-            4. Industry/domain knowledge
-            5. Specific technologies/tools mentioned
-            6. Company culture indicators
-            7. Key responsibilities
-            8. Preferred qualifications vs requirements
-            
-            Return as structured JSON.
-            """
-            
-            messages = [
-                SystemMessage(content="You are an expert job description analyzer. Extract key requirements and qualifications from job postings."),
-                HumanMessage(content=analysis_prompt)
-            ]
-            
-            response = await self.llm.ainvoke(messages)
-            
-            # Parse the analysis (assuming JSON response)
-            try:
-                analysis_data = json.loads(response.content)
-            except json.JSONDecodeError:
-                # Fallback: create structured analysis from text
-                analysis_data = {
-                    "raw_analysis": response.content,
-                    "extraction_method": "text_fallback"
-                }
-            
-            state["analysis_results"] = analysis_data
-            state["current_step"] = "job_analyzed"
-            logger.info("Job description analysis completed")
-            
-        except Exception as e:
-            state["error"] = f"Error analyzing job description: {str(e)}"
-            logger.error(f"Error analyzing job description: {str(e)}", exc_info=True)
-            
-        return state
-    
-    async def _identify_gaps_node(self, state: ResumeState) -> ResumeState:
-        """Identify gaps between resume and job requirements"""
-        try:
-            logger.info(f"Identifying gaps for session {state['session_id']}")
-            
-            gap_analysis_prompt = f"""
-            Compare this resume with the job requirements and identify gaps:
-            
-            RESUME CONTENT:
-            {state['original_resume']}
-            
-            JOB ANALYSIS:
-            {json.dumps(state['analysis_results'], indent=2)}
-            
-            Identify:
-            1. Missing technical skills
-            2. Missing experience areas
-            3. Weak points in current content
-            4. Opportunities to better align with job requirements
-            5. Keywords that should be added
-            6. Experience that should be emphasized
-            7. Skills that should be de-emphasized
-            
-            Provide specific, actionable recommendations for resume modification.
-            """
-            
-            messages = [
-                SystemMessage(content="You are an expert resume consultant. Identify gaps between resumes and job requirements."),
-                HumanMessage(content=gap_analysis_prompt)
-            ]
-            
-            response = await self.llm.ainvoke(messages)
-            
-            # Extract suggestions from the response
-            suggestions = self._extract_suggestions(response.content)
-            state["suggestions"] = suggestions
-            state["current_step"] = "gaps_identified"
-            logger.info(f"Identified {len(suggestions)} suggestions for improvement")
-            
-        except Exception as e:
-            state["error"] = f"Error identifying gaps: {str(e)}"
-            logger.error(f"Error identifying gaps: {str(e)}", exc_info=True)
-            
-        return state
-    
     async def _modify_content_node(self, state: ResumeState) -> ResumeState:
-        """Modify the resume content based on analysis"""
+        """Modify the resume content based on job description"""
         try:
             logger.info(f"Modifying content for session {state['session_id']}")
             
             modification_prompt = f"""
-            Modify this LaTeX resume to better align with the job requirements:
-            
-            ORIGINAL RESUME:
-            {state['original_resume']}
-            
-            JOB REQUIREMENTS:
-            {json.dumps(state['analysis_results'], indent=2)}
-            
-            SUGGESTIONS TO IMPLEMENT:
-            {chr(10).join(state['suggestions'])}
-            
-            Rules for modification:
-            1. Maintain the original LaTeX structure and formatting
-            2. Keep all personal information unchanged
-            3. Emphasize relevant experience and skills
-            4. Add missing keywords naturally
-            5. Reorder content if beneficial
-            6. Enhance bullet points with quantifiable achievements
-            7. Ensure readability and professional tone
-            8. Maintain truthfulness - only enhance existing experience
-            
-            Return the complete modified LaTeX document.
+Task
+You are a professional resume optimizer. Given a job description and a comprehensive resume, your task is to modify the resume by removing or reducing irrelevant experience points while maintaining the original LaTeX structure and formatting. You must NEVER add new information, skills, or experiences that are not already present in the original resume.
+
+Instructions
+Input Requirements
+
+Job Description: A detailed job posting including required skills, qualifications, and responsibilities
+Original Resume: A comprehensive resume in LaTeX format
+
+Output Requirements
+
+Modified resume in LaTeX format
+Same structural layout as the original
+Same formatting, fonts, and styling
+Reduced content focused on relevance to the target job
+
+Modification Rules
+What You CAN Do:
+
+Remove entire bullet points that are completely irrelevant to the job
+Shorten bullet points by removing irrelevant details while keeping the core relevant information
+Reorder bullet points to prioritize most relevant experiences first
+Remove entire job positions if they add no value to the application
+Consolidate similar experiences by combining related bullet points (only if they describe the same actual experience)
+Remove irrelevant skills from skills sections
+Remove irrelevant projects, certifications, or activities
+
+What You CANNOT Do:
+
+Add new experiences, skills, or qualifications not present in the original
+Exaggerate or embellish existing experiences
+Change job titles, company names, or dates
+Add new technical skills not mentioned in the original
+Create new bullet points with fabricated information
+Change the fundamental structure of the LaTeX document
+Modify contact information or personal details
+
+Optimization Strategy
+
+Analyze the job description for:
+
+Required technical skills
+Preferred qualifications
+Key responsibilities
+Industry-specific requirements
+Soft skills mentioned
+
+
+Evaluate each resume section for relevance:
+
+Rate each bullet point's relevance (High/Medium/Low)
+Identify transferable skills even from different industries
+Look for quantifiable achievements that demonstrate required competencies
+
+
+Apply modifications:
+
+Remove Low relevance items
+Shorten Medium relevance items to focus on relevant aspects
+Prioritize High relevance items
+Ensure most relevant experiences appear first
+
+
+Maintain professional quality:
+
+Keep 2-4 bullet points per relevant job
+Maintain action-oriented language
+Preserve quantifiable achievements
+Ensure logical flow and readability
+
+
+
+Example Transformation
+Original bullet point:
+\\item Managed a team of 5 developers to build a customer relationship management system using Java, Spring Boot, and MySQL, resulting in 30\\% improvement in sales team efficiency and \\$200K annual cost savings
+
+For a Data Science position, modify to:
+\\item Led technical team of 5 to develop data-driven CRM system with MySQL database, achieving 30\\% efficiency improvement through data analysis and optimization
+
+For an unrelated position, remove entirely or significantly reduce:
+\\item Managed cross-functional team of 5, delivering project 3 months ahead of schedule with \\$200K cost savings
+
+Quality Checklist
+Before outputting the modified resume, ensure:
+
+☐ No fabricated information has been added
+☐ LaTeX structure and formatting remain intact
+☐ Most relevant experiences are prominently featured
+☐ Resume length is appropriate (typically 1-2 pages)
+☐ All claims are truthful and verifiable
+☐ Professional tone and language are maintained
+☐ Contact information and personal details are unchanged
+
+Output Format
+Provide the complete modified LaTeX resume code, ready to compile, with clear comments indicating major changes made.
+
+Now apply this to the following:
+
+Job Description:
+Company: {state['company_name']}
+Position: {state['position_title']}
+Job Description: {state['job_description']}
+Additional Requirements: {state.get('requirements', 'None')}
+
+Original Resume:
+{state['original_resume']}
+
+Return the complete modified LaTeX document.
             """
             
             messages = [
-                SystemMessage(content="You are an expert resume writer specializing in LaTeX formatting. Modify resumes to match job requirements while maintaining accuracy and professionalism."),
+                SystemMessage(content="You are a professional resume optimizer specializing in LaTeX formatting. Modify resumes to match job requirements while maintaining accuracy and professionalism. Never add new information that wasn't in the original resume."),
                 HumanMessage(content=modification_prompt)
             ]
             
@@ -247,6 +225,44 @@ class ResumeModifierAgent:
             
         return state
     
+    def _compile_latex_to_pdf(self, latex_content: str, output_path: str) -> str:
+        """Compile LaTeX content to PDF"""
+        try:
+            # Create a temporary directory for LaTeX compilation
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Write LaTeX content to temporary file
+                tex_file = os.path.join(temp_dir, "resume.tex")
+                with open(tex_file, 'w', encoding='utf-8') as f:
+                    f.write(latex_content)
+                
+                # Compile LaTeX to PDF
+                result = subprocess.run(
+                    ['pdflatex', '-interaction=nonstopmode', '-output-directory', temp_dir, tex_file],
+                    capture_output=True,
+                    text=True,
+                    cwd=temp_dir
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"LaTeX compilation failed: {result.stderr}")
+                    raise Exception(f"LaTeX compilation failed: {result.stderr}")
+                
+                # Copy PDF to output directory
+                pdf_file = os.path.join(temp_dir, "resume.pdf")
+                if os.path.exists(pdf_file):
+                    import shutil
+                    shutil.copy2(pdf_file, output_path)
+                    return output_path
+                else:
+                    raise Exception("PDF file was not generated")
+                    
+        except subprocess.CalledProcessError as e:
+            logger.error(f"LaTeX compilation error: {str(e)}")
+            raise Exception(f"LaTeX compilation error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error compiling LaTeX: {str(e)}")
+            raise Exception(f"Error compiling LaTeX: {str(e)}")
+    
     async def _format_output_node(self, state: ResumeState) -> ResumeState:
         """Format the final output and save results"""
         try:
@@ -257,46 +273,42 @@ class ResumeModifierAgent:
             os.makedirs(output_dir, exist_ok=True)
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"modified_resume_{state['session_id']}_{timestamp}.tex"
-            output_path = os.path.join(output_dir, output_file)
+            tex_file = f"modified_resume_{state['session_id']}_{timestamp}.tex"
+            pdf_file = f"modified_resume_{state['session_id']}_{timestamp}.pdf"
             
-            with open(output_path, 'w', encoding='utf-8') as file:
+            tex_path = os.path.join(output_dir, tex_file)
+            pdf_path = os.path.join(output_dir, pdf_file)
+            
+            # Save LaTeX file
+            with open(tex_path, 'w', encoding='utf-8') as file:
                 file.write(state["modified_resume"])
+            
+            # Compile to PDF
+            try:
+                self._compile_latex_to_pdf(state["modified_resume"], pdf_path)
+                logger.info(f"PDF compiled successfully: {pdf_path}")
+            except Exception as e:
+                logger.warning(f"PDF compilation failed: {str(e)}. LaTeX file saved at {tex_path}")
+                pdf_path = None
             
             # Store session data
             self.sessions[state["session_id"]] = {
                 "timestamp": datetime.now(),
                 "company_name": state["company_name"],
                 "position_title": state["position_title"],
-                "output_file": output_path,
-                "suggestions": state["suggestions"],
-                "analysis": state["analysis_results"]
+                "tex_file": tex_path,
+                "pdf_file": pdf_path,
+                "job_description": state["job_description"]
             }
             
             state["current_step"] = "completed"
-            logger.info(f"Output formatted and saved to {output_path}")
+            logger.info(f"Output formatted and saved")
             
         except Exception as e:
             state["error"] = f"Error formatting output: {str(e)}"
             logger.error(f"Error formatting output: {str(e)}", exc_info=True)
             
         return state
-    
-    def _extract_suggestions(self, analysis_text: str) -> List[str]:
-        """Extract actionable suggestions from analysis text"""
-        suggestions = []
-        
-        # Simple extraction based on numbered lists or bullet points
-        lines = analysis_text.split('\n')
-        for line in lines:
-            line = line.strip()
-            if (line.startswith(('1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')) or
-                line.startswith(('•', '-', '*')) or
-                'should' in line.lower() or 'recommend' in line.lower()):
-                if len(line) > 10:  # Filter out very short lines
-                    suggestions.append(line)
-        
-        return suggestions[:10]  # Limit to top 10 suggestions
     
     async def modify_resume(self, job_description: str, company_name: str, 
                           position_title: str, requirements: Optional[str] = None,
@@ -312,8 +324,6 @@ class ResumeModifierAgent:
             requirements=requirements,
             original_resume="",
             modified_resume="",
-            analysis_results={},
-            suggestions=[],
             current_step="starting",
             error=None
         )
@@ -324,43 +334,13 @@ class ResumeModifierAgent:
         if result.get("error"):
             raise Exception(result["error"])
         
+        # Get session data to return file paths
+        session_data = self.sessions.get(result["session_id"], {})
+        
         return {
             "modified_content": result["modified_resume"],
-            "suggestions": result["suggestions"],
-            "analysis": result["analysis_results"]
-        }
-    
-    async def analyze_job_description(self, job_description: str, company_name: str, 
-                                    position_title: str) -> Dict[str, Any]:
-        """Analyze job description without modifying resume"""
-        
-        analysis_prompt = f"""
-        Analyze this job description in detail:
-        
-        Company: {company_name}
-        Position: {position_title}
-        Job Description: {job_description}
-        
-        Provide comprehensive analysis including:
-        - Key skills and technologies
-        - Experience requirements
-        - Company culture insights
-        - Salary expectations (if mentioned)
-        - Growth opportunities
-        - Required vs preferred qualifications
-        """
-        
-        messages = [
-            SystemMessage(content="You are an expert job market analyzer."),
-            HumanMessage(content=analysis_prompt)
-        ]
-        
-        response = await self.llm.ainvoke(messages)
-        
-        return {
-            "analysis": response.content,
-            "company": company_name,
-            "position": position_title
+            "tex_file": session_data.get("tex_file"),
+            "pdf_file": session_data.get("pdf_file")
         }
     
     async def get_current_resume_content(self) -> str:
