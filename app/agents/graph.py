@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import subprocess
 import tempfile
+import yaml
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -25,6 +26,7 @@ class ResumeState(TypedDict):
     requirements: Optional[str]
     original_resume: str
     modified_resume: str
+    rendercv_yaml: str
     current_step: str
     error: Optional[str]
 
@@ -58,12 +60,14 @@ class ResumeModifierAgent:
         # Add nodes
         workflow.add_node("load_resume", self._load_resume_node)
         workflow.add_node("modify_content", self._modify_content_node)
+        workflow.add_node("convert_to_rendercv", self._convert_to_rendercv_node)
         workflow.add_node("format_output", self._format_output_node)
         
         # Add edges
         workflow.set_entry_point("load_resume")
         workflow.add_edge("load_resume", "modify_content")
-        workflow.add_edge("modify_content", "format_output")
+        workflow.add_edge("modify_content", "convert_to_rendercv")
+        workflow.add_edge("convert_to_rendercv", "format_output")
         workflow.add_edge("format_output", END)
         
         return workflow.compile()
@@ -225,6 +229,143 @@ Return the complete modified LaTeX document.
             
         return state
     
+    async def _convert_to_rendercv_node(self, state: ResumeState) -> ResumeState:
+        """Convert LaTeX resume to RenderCV YAML format"""
+        try:
+            logger.info(f"Converting to RenderCV format for session {state['session_id']}")
+            
+            conversion_prompt = f"""
+Task: Convert a LaTeX resume to RenderCV YAML format.
+
+You are an expert in both LaTeX and RenderCV YAML format. Convert the following LaTeX resume into a properly structured RenderCV YAML file.
+
+RenderCV YAML Structure:
+```yaml
+cv:
+  name: Full Name
+  location: City, Country
+  email: email@domain.com
+  phone: "+1-234-567-8900"
+  website: https://website.com
+  social_networks:
+    - network: LinkedIn
+      username: username
+    - network: GitHub
+      username: username
+  sections:
+    summary:
+      - Brief professional summary paragraph
+    education:
+      - institution: University Name
+        area: Field of Study
+        degree: Degree Type
+        start_date: YYYY-MM
+        end_date: YYYY-MM
+        highlights:
+          - GPA: 3.8/4.0
+          - Relevant coursework: Course1, Course2
+    experience:
+      - company: Company Name
+        position: Job Title
+        location: City, State
+        start_date: YYYY-MM
+        end_date: YYYY-MM
+        highlights:
+          - Achievement or responsibility 1
+          - Achievement or responsibility 2
+    projects:
+      - name: Project Name
+        start_date: YYYY-MM
+        end_date: YYYY-MM
+        highlights:
+          - Project description
+          - Technologies used
+    technologies:
+      - label: Programming Languages
+        details: Python, JavaScript, Java
+      - label: Frameworks
+        details: React, Flask, Django
+    certifications:
+      - name: Certification Name
+        date: YYYY-MM
+        details: Issuing organization
+```
+
+Instructions:
+1. Extract personal information (name, contact details) from LaTeX
+2. Parse education section with degrees, institutions, dates
+3. Convert work experience with companies, positions, dates, and achievements
+4. Extract skills/technologies and group them logically
+5. Include projects, certifications, and other relevant sections
+6. Maintain all important details while converting format
+7. Use proper YAML syntax and indentation
+8. Convert LaTeX date formats to YYYY-MM format
+9. Convert LaTeX bullet points (\\item) to YAML list items
+10. Extract meaningful section headers and content
+
+LaTeX Resume to Convert:
+{state['modified_resume']}
+
+Return only the complete YAML content for RenderCV, properly formatted and ready to use.
+            """
+            
+            messages = [
+                SystemMessage(content="You are an expert in converting LaTeX resumes to RenderCV YAML format. Ensure accurate extraction of all information while maintaining proper YAML structure."),
+                HumanMessage(content=conversion_prompt)
+            ]
+            
+            response = await self.llm.ainvoke(messages)
+            
+            state["rendercv_yaml"] = response.content
+            state["current_step"] = "converted_to_rendercv"
+            logger.info("Resume converted to RenderCV YAML format")
+            
+        except Exception as e:
+            state["error"] = f"Error converting to RenderCV: {str(e)}"
+            logger.error(f"Error converting to RenderCV: {str(e)}", exc_info=True)
+            
+        return state
+    
+    def _generate_pdf_with_rendercv(self, yaml_content: str, output_path: str) -> str:
+        """Generate PDF using RenderCV"""
+        try:
+            # Create a temporary directory for RenderCV
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Write YAML content to temporary file
+                yaml_file = os.path.join(temp_dir, "resume.yaml")
+                with open(yaml_file, 'w', encoding='utf-8') as f:
+                    f.write(yaml_content)
+                
+                # Use RenderCV to generate PDF
+                result = subprocess.run(
+                    ['rendercv', 'render', yaml_file],
+                    capture_output=True,
+                    text=True,
+                    cwd=temp_dir
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"RenderCV failed: {result.stderr}")
+                    raise Exception(f"RenderCV failed: {result.stderr}")
+                
+                # Find the generated PDF (RenderCV typically creates it in the same directory)
+                pdf_files = [f for f in os.listdir(temp_dir) if f.endswith('.pdf')]
+                if pdf_files:
+                    pdf_file = os.path.join(temp_dir, pdf_files[0])
+                    # Copy PDF to output directory
+                    import shutil
+                    shutil.copy2(pdf_file, output_path)
+                    return output_path
+                else:
+                    raise Exception("PDF file was not generated by RenderCV")
+                    
+        except subprocess.CalledProcessError as e:
+            logger.error(f"RenderCV subprocess error: {str(e)}")
+            raise Exception(f"RenderCV subprocess error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error generating PDF with RenderCV: {str(e)}")
+            raise Exception(f"Error generating PDF with RenderCV: {str(e)}")
+    
     def _compile_latex_to_pdf(self, latex_content: str, output_path: str) -> str:
         """Compile LaTeX content to PDF"""
         try:
@@ -274,22 +415,40 @@ Return the complete modified LaTeX document.
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             tex_file = f"modified_resume_{state['session_id']}_{timestamp}.tex"
-            pdf_file = f"modified_resume_{state['session_id']}_{timestamp}.pdf"
+            yaml_file = f"modified_resume_{state['session_id']}_{timestamp}.yaml"
+            pdf_file_latex = f"modified_resume_{state['session_id']}_{timestamp}_latex.pdf"
+            pdf_file_rendercv = f"modified_resume_{state['session_id']}_{timestamp}_rendercv.pdf"
             
             tex_path = os.path.join(output_dir, tex_file)
-            pdf_path = os.path.join(output_dir, pdf_file)
+            yaml_path = os.path.join(output_dir, yaml_file)
+            pdf_path_latex = os.path.join(output_dir, pdf_file_latex)
+            pdf_path_rendercv = os.path.join(output_dir, pdf_file_rendercv)
             
             # Save LaTeX file
             with open(tex_path, 'w', encoding='utf-8') as file:
                 file.write(state["modified_resume"])
             
-            # Compile to PDF
+            # Save YAML file
+            with open(yaml_path, 'w', encoding='utf-8') as file:
+                file.write(state["rendercv_yaml"])
+            
+            # Try to compile LaTeX to PDF (fallback)
+            latex_pdf_path = None
             try:
-                self._compile_latex_to_pdf(state["modified_resume"], pdf_path)
-                logger.info(f"PDF compiled successfully: {pdf_path}")
+                self._compile_latex_to_pdf(state["modified_resume"], pdf_path_latex)
+                latex_pdf_path = pdf_path_latex
+                logger.info(f"LaTeX PDF compiled successfully: {pdf_path_latex}")
             except Exception as e:
-                logger.warning(f"PDF compilation failed: {str(e)}. LaTeX file saved at {tex_path}")
-                pdf_path = None
+                logger.warning(f"LaTeX PDF compilation failed: {str(e)}")
+            
+            # Try to generate PDF with RenderCV (primary method)
+            rendercv_pdf_path = None
+            try:
+                self._generate_pdf_with_rendercv(state["rendercv_yaml"], pdf_path_rendercv)
+                rendercv_pdf_path = pdf_path_rendercv
+                logger.info(f"RenderCV PDF generated successfully: {pdf_path_rendercv}")
+            except Exception as e:
+                logger.warning(f"RenderCV PDF generation failed: {str(e)}")
             
             # Store session data
             self.sessions[state["session_id"]] = {
@@ -297,7 +456,9 @@ Return the complete modified LaTeX document.
                 "company_name": state["company_name"],
                 "position_title": state["position_title"],
                 "tex_file": tex_path,
-                "pdf_file": pdf_path,
+                "yaml_file": yaml_path,
+                "pdf_file_latex": latex_pdf_path,
+                "pdf_file_rendercv": rendercv_pdf_path,
                 "job_description": state["job_description"]
             }
             
@@ -324,6 +485,7 @@ Return the complete modified LaTeX document.
             requirements=requirements,
             original_resume="",
             modified_resume="",
+            rendercv_yaml="",
             current_step="starting",
             error=None
         )
@@ -339,8 +501,11 @@ Return the complete modified LaTeX document.
         
         return {
             "modified_content": result["modified_resume"],
+            "rendercv_yaml": result["rendercv_yaml"],
             "tex_file": session_data.get("tex_file"),
-            "pdf_file": session_data.get("pdf_file")
+            "yaml_file": session_data.get("yaml_file"),
+            "pdf_file_latex": session_data.get("pdf_file_latex"),
+            "pdf_file_rendercv": session_data.get("pdf_file_rendercv")
         }
     
     async def get_current_resume_content(self) -> str:
