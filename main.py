@@ -10,6 +10,7 @@ import uvicorn
 
 from app.config import settings
 from app.api.endpoints import router as api_router
+from app.api.rendercv_endpoints import router as rendercv_router
 
 # Configure logging
 logging.basicConfig(
@@ -26,8 +27,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Resume Modifier Backend")
     
     # Check for required environment variables
-    if not settings.openai_api_key:
-        logger.warning("OPENAI_API_KEY not found in environment variables")
+    if not settings.anthropic_api_key:
+        logger.warning("ANTHROPIC_API_KEY not found in environment variables")
     
     
     # Ensure data directories exist
@@ -39,7 +40,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info("Shutting down Chat With PDF Backend")
+    logger.info("Shutting down Resume Modifier Backend")
 
 
 # Create FastAPI application
@@ -67,7 +68,8 @@ app.add_middleware(
 )
 
 # Include API routes
-app.include_router(api_router, prefix="/api/v1", tags=["Chat with PDF"])
+app.include_router(api_router, prefix="/api/v1", tags=["Resume Modifier"])
+app.include_router(rendercv_router, prefix="/api/v1", tags=["RenderCV"])
 
 
 @app.get("/")
