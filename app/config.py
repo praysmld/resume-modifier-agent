@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     
+    # Security Configuration
+    secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production-please")
+    jwt_algorithm: str = "HS256"
+    access_token_expire_hours: int = 24
+    
     # LLM Configuration
     openai_api_key: Optional[str] = os.getenv("OPENAI_API_KEY")
     anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
@@ -35,6 +40,11 @@ class Settings(BaseSettings):
     
     # ChromaDB Configuration
     chroma_persist_directory: str = "./chroma_db"
+    
+    # Rate Limiting
+    rate_limit_modify_resume: int = 10  # per hour
+    rate_limit_quick_modify: int = 20  # per hour
+    rate_limit_general: int = 100  # per hour
     
     class Config:
         env_file = ".env"
