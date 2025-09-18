@@ -11,6 +11,7 @@ import uvicorn
 from app.config import settings
 from app.api.endpoints import router as api_router
 from app.api.rendercv_endpoints import router as rendercv_router
+from app.api.comprehensive_api import router as comprehensive_router
 
 # Configure logging
 logging.basicConfig(
@@ -70,6 +71,7 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router, prefix="/api/v1", tags=["Resume Modifier"])
 app.include_router(rendercv_router, prefix="/api/v1", tags=["RenderCV"])
+app.include_router(comprehensive_router, prefix="/api", tags=["Comprehensive API"])
 
 
 @app.get("/")
