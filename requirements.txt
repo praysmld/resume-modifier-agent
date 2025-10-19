@@ -38,4 +38,4 @@ pyyaml==6.0.1
 supabase==2.3.4
 
 # Email validation
-email-validator==2.1.0
+email-validator==2.2.0

@@ -24,7 +24,13 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = os.getenv("ANTHROPIC_API_KEY")
     openai_model: str = "gpt-4o"
     anthropic_model: str = "claude-sonnet-4-20250514"
-    
+
+    # Supabase Configuration
+    supabase_url: str
+    supabase_anon_key: str
+    supabase_email: Optional[str] = None
+    supabase_password: Optional[str] = None
+
     # Session Management
     session_ttl: int = 3600  # 1 hour
     max_session_memory: int = 50  # Maximum messages per session
