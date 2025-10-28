@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Resume Modifier</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Login/Register Screen -->
+    <div id="auth-screen" class="screen">
+      <div class="header">
+        <h1>Resume Modifier</h1>
+        <p>AI-Powered Resume Customization</p>
+      </div>
+
+      <div class="tabs">
+        <button id="login-tab" class="tab active">Login</button>
+        <button id="register-tab" class="tab">Register</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form" class="auth-form">
+        <input type="email" id="login-email" placeholder="Email" required>
+        <input type="password" id="login-password" placeholder="Password" required>
+        <button type="submit" class="btn-primary">Login</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="auth-form hidden">
+        <input type="text" id="register-name" placeholder="Full Name" required>
+        <input type="email" id="register-email" placeholder="Email" required>
+        <input type="password" id="register-password" placeholder="Password" required>
+        <button type="submit" class="btn-primary">Register</button>
+      </form>
+
+      <div id="auth-error" class="error hidden"></div>
+    </div>
+
+    <!-- Main Screen (After Login) -->
+    <div id="main-screen" class="screen hidden">
+      <div class="header">
+        <h2>Resume Modifier</h2>
+        <button id="logout-btn" class="btn-text">Logout</button>
+      </div>
+
+      <div id="status-card" class="card">
+        <div class="status-item">
+          <span>Master Resume:</span>
+          <span id="master-resume-status" class="status-badge">Loading...</span>
+        </div>
+        <div class="status-item">
+          <span>Quota Remaining:</span>
+          <span id="quota-status">--</span>
+        </div>
+      </div>
+
+      <!-- Upload Master Resume Section -->
+      <div id="upload-section" class="section hidden">
+        <h3>Upload Master Resume</h3>
+        <input type="file" id="resume-file" accept=".pdf,.docx">
+        <button id="upload-btn" class="btn-primary">Upload</button>
+      </div>
+
+      <!-- Quick Modify Section -->
+      <div id="modify-section" class="section hidden">
+        <h3>Quick Modify</h3>
+        <p class="hint">Navigate to a job posting and click "Generate Resume"</p>
+        <button id="generate-resume-btn" class="btn-primary">
+          Generate Resume for This Job
+        </button>
+        <div id="job-info" class="job-info hidden">
+          <p><strong>Detected Job:</strong> <span id="job-title">--</span></p>
+          <p><strong>Company:</strong> <span id="company-name">--</span></p>
+        </div>
+      </div>
+
+      <!-- Recent Resumes -->
+      <div id="recent-section" class="section">
+        <h3>Recent Resumes</h3>
+        <div id="recent-resumes" class="resume-list">
+          <p class="hint">No resumes generated yet</p>
+        </div>
+      </div>
+
+      <div id="main-error" class="error hidden"></div>
+      <div id="loading" class="loading hidden">Processing...</div>
+    </div>
+  </div>
+
+  <script src="../api/api-client.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
