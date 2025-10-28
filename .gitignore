@@ -61,3 +61,8 @@ node_modules/
 
 # Misc
 .DS_Store
+
+# Chrome Extension
+chrome-extension/*.zip
+chrome-extension/.DS_Store
+chrome-extension/icons/create_icons.py
