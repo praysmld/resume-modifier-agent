@@ -7,7 +7,7 @@ from enum import Enum
 # User Management Models
 class UserRegistration(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=8, max_length=72, description="Password (8-72 characters, bcrypt limit)")
     full_name: str = Field(..., min_length=1)
 
 

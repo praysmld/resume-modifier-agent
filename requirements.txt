@@ -8,6 +8,7 @@ python-dotenv==1.0.0
 # Authentication and Security
 PyJWT==2.8.0
 passlib[bcrypt]==1.7.4
+bcrypt<5.0.0  # Pin to 4.x for passlib 1.7.4 compatibility
 python-jose[cryptography]==3.3.0
 
 # LLM and AI libraries

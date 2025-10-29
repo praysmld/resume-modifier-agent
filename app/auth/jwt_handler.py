@@ -16,13 +16,21 @@ ACCESS_TOKEN_EXPIRE_HOURS = settings.access_token_expire_hours
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against its hash (bcrypt has a 72 byte limit)"""
+    # Bcrypt has a maximum password length of 72 bytes
+    # Truncate to 72 bytes to match hashing behavior
+    password_bytes = plain_password.encode('utf-8')[:72]
+    truncated_password = password_bytes.decode('utf-8', errors='ignore')
+    return pwd_context.verify(truncated_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password"""
-    return pwd_context.hash(password)
+    """Hash a password (bcrypt has a 72 byte limit, so we truncate)"""
+    # Bcrypt has a maximum password length of 72 bytes
+    # Truncate to 72 bytes to prevent ValueError
+    password_bytes = password.encode('utf-8')[:72]
+    truncated_password = password_bytes.decode('utf-8', errors='ignore')
+    return pwd_context.hash(truncated_password)
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
