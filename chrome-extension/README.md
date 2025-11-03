@@ -4,7 +4,9 @@ AI-powered Chrome extension that automatically customizes your resume for any jo
 
 ## Features
 
+- **Right-Click Context Menu**: Select any job description text, right-click, and generate resume instantly
 - **One-Click Resume Generation**: Generate tailored resumes directly from job postings
+- **Works on ANY Website**: Not limited to job boards - works wherever you find job descriptions
 - **Multi-Platform Support**: Works on LinkedIn, Indeed, and Glassdoor
 - **JWT Authentication**: Secure login and registration
 - **Master Resume Management**: Upload once, customize many times
@@ -39,14 +41,28 @@ AI-powered Chrome extension that automatically customizes your resume for any jo
 
 ## Usage
 
-### Method 1: From Extension Popup
+### Method 1: Right-Click Context Menu (NEW! - Fastest Method)
+
+1. **Find a job description** on ANY website (company careers page, job board, email, etc.)
+2. **Select the job description text** with your mouse
+3. **Right-click** the selected text
+4. **Click "Generate Resume from Job Description"**
+5. Your customized resume will be generated and downloaded automatically!
+
+**Works on:**
+- Company career pages
+- Job boards (LinkedIn, Indeed, Glassdoor, etc.)
+- Job descriptions in emails or documents
+- Any webpage with job posting text
+
+### Method 2: From Extension Popup
 
 1. Navigate to any job posting on LinkedIn, Indeed, or Glassdoor
 2. Click the Resume Modifier extension icon
 3. Click "Generate Resume for This Job"
 4. Choose where to save your customized resume
 
-### Method 2: From Injected Button
+### Method 3: From Injected Button
 
 1. Navigate to any job posting
 2. Look for the blue "📄 Generate Custom Resume" button at the top

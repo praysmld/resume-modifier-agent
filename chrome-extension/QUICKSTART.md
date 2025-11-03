@@ -49,7 +49,23 @@ python main.py
 
 ## Step 4: Generate Your First Resume (1 minute)
 
-### Method A: From Any Job Posting
+### Method A: Right-Click Context Menu (FASTEST! NEW!)
+
+1. **Find ANY job description** on ANY website (company site, job board, email, etc.)
+
+2. **Select the job description text** with your mouse
+
+3. **Right-click** the selected text
+
+4. Click **"Generate Resume from Job Description"**
+
+5. Choose where to save the PDF
+
+6. Done! 🎉
+
+**This works on ANY website - not just job boards!**
+
+### Method B: From Any Job Posting (Extension Popup)
 
 1. Navigate to a job on:
    - LinkedIn: `https://www.linkedin.com/jobs/`
@@ -66,7 +82,7 @@ python main.py
 
 6. Done! 🎉
 
-### Method B: From Injected Button
+### Method C: From Injected Button
 
 1. Navigate to any job posting
 2. Look for the blue button: **"📄 Generate Custom Resume"**
